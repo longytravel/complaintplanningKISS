@@ -1,16 +1,11 @@
 """Complaints Workforce Demand Model — Interactive Dashboard"""
 
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(__file__))
-
 import streamlit as st
 import plotly.graph_objects as go
 from collections import defaultdict
 from statistics import mean
 
-import prove_maths as pm
+from complaints_model import SimConfig, simulate
 
 st.set_page_config(page_title="Complaints Demand Model", layout="wide")
 st.title("Complaints Workforce Demand Simulation")
@@ -81,29 +76,19 @@ def run_simulation(
     p_src_window, p_src_effort_ratio, p_src_boost_max, p_src_boost_decay,
     p_psd2_extension_rate, p_slices_per_day,
 ):
-    pm.SHRINKAGE = p_shrinkage
-    pm.ABSENCE_SHRINKAGE = p_absence_shrinkage
-    pm.HOURS_PER_DAY = p_hours_per_day
-    pm.UTILISATION = p_utilisation
-    pm.PROFICIENCY = p_proficiency
-    pm.DAILY_INTAKE = p_daily_intake
-    pm.BASE_EFFORT = p_base_effort
-    pm.DIARY_LIMIT = p_diary_limit
-    pm.MIN_DIARY_DAYS = p_min_diary_days
-    pm.HANDOFF_OVERHEAD = p_handoff_overhead
-    pm.HANDOFF_EFFORT_HOURS = p_handoff_effort_hours
-    pm.LATE_DEMAND_RATE = p_late_demand_rate
-    pm.PARKINSON_FLOOR = p_parkinson_floor
-    pm.PARKINSON_FULL_PACE_QUEUE = p_parkinson_fpq
-    pm.UNALLOCATED_BUFFER = p_unallocated_buffer
-    pm.SRC_WINDOW = p_src_window
-    pm.SRC_EFFORT_RATIO = p_src_effort_ratio
-    pm.SRC_BOOST_MAX = p_src_boost_max
-    pm.SRC_BOOST_DECAY_DAYS = p_src_boost_decay
-    pm.PSD2_EXTENSION_RATE = p_psd2_extension_rate
-    pm.SLICES_PER_DAY = p_slices_per_day
-    pm.DAYS = 365
-    return pm.simulate(p_fte)
+    cfg = SimConfig(
+        fte=p_fte, shrinkage=p_shrinkage, absence_shrinkage=p_absence_shrinkage,
+        hours_per_day=p_hours_per_day, utilisation=p_utilisation, proficiency=p_proficiency,
+        daily_intake=p_daily_intake, base_effort=p_base_effort, diary_limit=p_diary_limit,
+        min_diary_days=p_min_diary_days, handoff_overhead=p_handoff_overhead,
+        handoff_effort_hours=p_handoff_effort_hours, late_demand_rate=p_late_demand_rate,
+        parkinson_floor=p_parkinson_floor, parkinson_full_pace_queue=p_parkinson_fpq,
+        unallocated_buffer=p_unallocated_buffer, src_window=p_src_window,
+        src_effort_ratio=p_src_effort_ratio, src_boost_max=p_src_boost_max,
+        src_boost_decay_days=p_src_boost_decay, psd2_extension_rate=p_psd2_extension_rate,
+        slices_per_day=p_slices_per_day, days=365,
+    )
+    return simulate(cfg)
 
 
 results = run_simulation(

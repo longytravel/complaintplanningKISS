@@ -19,7 +19,11 @@ import subprocess
 import sys
 import time
 
-from prove_maths import DEFAULT_FTE, DAILY_INTAKE
+from complaints_model.config import SimConfig
+
+_DEFAULT_CFG = SimConfig()
+DEFAULT_FTE = _DEFAULT_CFG.fte
+DAILY_INTAKE = _DEFAULT_CFG.daily_intake
 
 
 ALLOCATION_STRATEGIES = [
@@ -40,27 +44,26 @@ SORT_CHOICES = [
 # Script executed in subprocess for each scenario
 _WORKER_SCRIPT = r'''
 import json, sys
-import strategy_model as sm
 from statistics import mean
+from complaints_model import SimConfig, simulate
+from complaints_model.metrics import average_breach_rates, average_flow_breach_rates
 
 alloc, work, fte = sys.argv[1], sys.argv[2], int(sys.argv[3])
-sm.ALLOCATION_STRATEGY = alloc
-sm.WORK_STRATEGY = work
-result = sm.simulate(fte)
+cfg = SimConfig(fte=fte, allocation_strategy=alloc, work_strategy=work)
+result = simulate(cfg)
 
 n = min(30, len(result))
 last30 = result[-n:]
 last30_work = [r for r in last30 if r["workday"]]
 
-# Compute breach rates — use real functions when full sim ran, fallback for circuit-breaker exits
 final_wip = result[-1]["wip"]
 circuit_broke = not result[-1].get("breaches_by_type") and final_wip > 10000
 
 if circuit_broke:
     fca_stock = psd2_stock = fca_flow = psd2_flow = 1.0
 else:
-    _t, fca_stock, psd2_stock = sm.average_breach_rates(result, last_days=n)
-    _tf, fca_flow, psd2_flow = sm.average_flow_breach_rates(result, last_days=n)
+    _t, fca_stock, psd2_stock = average_breach_rates(result, last_days=n)
+    _tf, fca_flow, psd2_flow = average_flow_breach_rates(result, last_days=n)
 
 fca_n = sum(r["close_sums"]["FCA"]["n"] for r in last30_work)
 fca_age = sum(r["close_sums"]["FCA"]["reg"] for r in last30_work) / fca_n if fca_n > 0.01 else 0.0
@@ -102,37 +105,29 @@ def run_scenario(alloc: str, work: str, fte: int, retries: int = 4) -> tuple[dic
 
 
 def run_regression() -> bool:
-    """Verify nearest_target/nearest_target matches prove_maths baseline."""
-    import prove_maths
-    import strategy_model as sm
+    """Verify default config simulation produces known baseline values."""
+    from complaints_model import SimConfig, simulate
+    from complaints_model.metrics import average_breach_rates
 
-    print("Regression check: strategy_model vs prove_maths (nearest_target/nearest_target)")
-
-    sm.ALLOCATION_STRATEGY = "nearest_target"
-    sm.WORK_STRATEGY = "nearest_target"
+    print("Regression check: complaints_model with default config")
 
     t0 = time.time()
-    baseline = prove_maths.simulate(DEFAULT_FTE)
+    cfg = SimConfig()
+    result = simulate(cfg)
     t1 = time.time()
-    result = sm.simulate(DEFAULT_FTE)
-    t2 = time.time()
 
-    max_wip_diff = max(
-        abs(baseline[i]["wip"] - result[i]["wip"]) for i in range(len(baseline))
-    )
-    b_wip = baseline[-1]["wip"]
-    s_wip = result[-1]["wip"]
-    pct = abs(b_wip - s_wip) / max(b_wip, 1.0) * 100
+    b_wip = result[-1]["wip"]
+    expected_wip = 1031.6704226651175
+    pct = abs(b_wip - expected_wip) / max(expected_wip, 1.0) * 100
 
-    print(f"  prove_maths : {t1 - t0:.1f}s  final WIP = {b_wip:.1f}")
-    print(f"  strategy_mod: {t2 - t1:.1f}s  final WIP = {s_wip:.1f}")
-    print(f"  Max WIP diff across all days: {max_wip_diff:.4f}")
+    print(f"  complaints_model: {t1 - t0:.1f}s  final WIP = {b_wip:.1f}")
+    print(f"  Expected WIP: {expected_wip:.1f}")
 
     if pct < 0.5:
-        print(f"  PASSED (final WIP diff = {pct:.4f}%)")
+        print(f"  PASSED (WIP diff = {pct:.6f}%)")
         return True
     else:
-        print(f"  FAILED (final WIP diff = {pct:.2f}%)")
+        print(f"  FAILED (WIP diff = {pct:.2f}%)")
         return False
 
 

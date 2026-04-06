@@ -14,11 +14,15 @@ import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-import prove_maths as pm
+from complaints_model import SimConfig, simulate
+from complaints_model.metrics import (
+    last_n_workdays, average_breach_rates, average_flow_breach_rates,
+    is_stable, summarise_closure_metrics,
+)
+from complaints_model.regulatory import BREACH_TARGETS
 from statistics import mean
 
-# Override to 1 year
-pm.DAYS = 365
+cfg = SimConfig(days=365)
 
 UNDER_FTE = 105
 OVER_FTE = 125
@@ -26,13 +30,13 @@ OVER_FTE = 125
 print("=" * 100)
 print(f"STAFFING COMPARISON — 1 YEAR (365 days)")
 print(f"Understaffed: {UNDER_FTE} FTE  |  Overstaffed: {OVER_FTE} FTE")
-print(f"Daily intake: {pm.DAILY_INTAKE}  |  Shrinkage: {pm.SHRINKAGE:.0%}  |  Min stable: ~119 FTE")
+print(f"Daily intake: {cfg.daily_intake}  |  Shrinkage: {cfg.shrinkage:.0%}  |  Min stable: ~119 FTE")
 print("=" * 100)
 
 # Run both simulations
 print("\nRunning simulations...")
-result_under = pm.simulate(UNDER_FTE)
-result_over = pm.simulate(OVER_FTE)
+result_under = simulate(SimConfig(fte=UNDER_FTE, days=365))
+result_over = simulate(SimConfig(fte=OVER_FTE, days=365))
 print("Done.\n")
 
 
@@ -69,18 +73,18 @@ def header() -> None:
 # ── Capacity parameters ──
 section("CAPACITY PARAMETERS")
 header()
-on_desk_prod_u = UNDER_FTE * (1 - pm.SHRINKAGE)
-on_desk_prod_o = OVER_FTE * (1 - pm.SHRINKAGE)
-on_desk_pres_u = UNDER_FTE * (1 - pm.ABSENCE_SHRINKAGE)
-on_desk_pres_o = OVER_FTE * (1 - pm.ABSENCE_SHRINKAGE)
+on_desk_prod_u = UNDER_FTE * (1 - cfg.shrinkage)
+on_desk_prod_o = OVER_FTE * (1 - cfg.shrinkage)
+on_desk_pres_u = UNDER_FTE * (1 - cfg.absence_shrinkage)
+on_desk_pres_o = OVER_FTE * (1 - cfg.absence_shrinkage)
 row("Headcount FTE", UNDER_FTE, OVER_FTE, "d")
 row("On-desk productive (after shrinkage)", on_desk_prod_u, on_desk_prod_o, ".1f")
 row("On-desk present (after absence)", on_desk_pres_u, on_desk_pres_o, ".1f")
-row("Diary slots (present × limit)", on_desk_pres_u * pm.DIARY_LIMIT, on_desk_pres_o * pm.DIARY_LIMIT, ".1f")
-row("Max productive hrs/day", on_desk_prod_u * pm.HOURS_PER_DAY, on_desk_prod_o * pm.HOURS_PER_DAY, ".1f", " hrs")
+row("Diary slots (present × limit)", on_desk_pres_u * cfg.diary_limit, on_desk_pres_o * cfg.diary_limit, ".1f")
+row("Max productive hrs/day", on_desk_prod_u * cfg.hours_per_day, on_desk_prod_o * cfg.hours_per_day, ".1f", " hrs")
 row("Theoretical cases/day (max hrs ÷ base effort)",
-    on_desk_prod_u * pm.HOURS_PER_DAY / pm.BASE_EFFORT,
-    on_desk_prod_o * pm.HOURS_PER_DAY / pm.BASE_EFFORT, ".1f")
+    on_desk_prod_u * cfg.hours_per_day / cfg.base_effort,
+    on_desk_prod_o * cfg.hours_per_day / cfg.base_effort, ".1f")
 
 # ── End-state snapshot ──
 section("END-STATE SNAPSHOT (Day 365)")
@@ -114,8 +118,8 @@ for label in ["0-3", "4-15", "16-35", "36-56", "57+"]:
 section("STEADY-STATE METRICS (last 60 workdays)")
 header()
 
-last60u = pm.last_n_workdays(result_under, 60)
-last60o = pm.last_n_workdays(result_over, 60)
+last60u = last_n_workdays(result_under, 60)
+last60o = last_n_workdays(result_over, 60)
 
 row("Avg daily closures", mean(r["closures"] for r in last60u), mean(r["closures"] for r in last60o), ".1f")
 row("Avg daily allocations", mean(r["allocations"] for r in last60u), mean(r["allocations"] for r in last60o), ".1f")
@@ -132,8 +136,8 @@ row("Avg diary occupancy (end)",
 
 # Closure metrics by type
 for ct in ["FCA", "PSD2_15", "PSD2_35"]:
-    avg_close_u, avg_reg_u, avg_cal_u, avg_sys_u = pm.summarise_closure_metrics(last60u, ct)
-    avg_close_o, avg_reg_o, avg_cal_o, avg_sys_o = pm.summarise_closure_metrics(last60o, ct)
+    avg_close_u, avg_reg_u, avg_cal_u, avg_sys_u = summarise_closure_metrics(last60u, ct)
+    avg_close_o, avg_reg_o, avg_cal_o, avg_sys_o = summarise_closure_metrics(last60o, ct)
     row(f"  {ct} closures/day", avg_close_u, avg_close_o, ".1f")
     row(f"  {ct} avg reg age at close", avg_reg_u, avg_reg_o, ".1f", " days", warn_if="higher")
     row(f"  {ct} avg cal age at close", avg_cal_u, avg_cal_o, ".1f", " days")
@@ -143,10 +147,10 @@ for ct in ["FCA", "PSD2_15", "PSD2_35"]:
 section("BREACH RATES (last 30 days)")
 header()
 
-stock_total_u, stock_fca_u, stock_psd2_u = pm.average_breach_rates(result_under, 30)
-stock_total_o, stock_fca_o, stock_psd2_o = pm.average_breach_rates(result_over, 30)
-flow_total_u, flow_fca_u, flow_psd2_u = pm.average_flow_breach_rates(result_under, 30)
-flow_total_o, flow_fca_o, flow_psd2_o = pm.average_flow_breach_rates(result_over, 30)
+stock_total_u, stock_fca_u, stock_psd2_u = average_breach_rates(result_under, 30)
+stock_total_o, stock_fca_o, stock_psd2_o = average_breach_rates(result_over, 30)
+flow_total_u, flow_fca_u, flow_psd2_u = average_flow_breach_rates(result_under, 30)
+flow_total_o, flow_fca_o, flow_psd2_o = average_flow_breach_rates(result_over, 30)
 
 row("Stock breach rate (total)", stock_total_u * 100, stock_total_o * 100, ".2f", "%", warn_if="higher")
 row("Stock breach rate (FCA)", stock_fca_u * 100, stock_fca_o * 100, ".2f", "%", warn_if="higher")
@@ -155,14 +159,14 @@ row("Flow breach rate (total)", flow_total_u * 100, flow_total_o * 100, ".2f", "
 row("Flow breach rate (FCA)", flow_fca_u * 100, flow_fca_o * 100, ".2f", "%", warn_if="higher")
 row("Flow breach rate (PSD2)", flow_psd2_u * 100, flow_psd2_o * 100, ".2f", "%", warn_if="higher")
 
-row("FCA breach target", pm.BREACH_TARGETS["FCA"] * 100, pm.BREACH_TARGETS["FCA"] * 100, ".0f", "%")
-row("PSD2 breach target", pm.BREACH_TARGETS["PSD2"] * 100, pm.BREACH_TARGETS["PSD2"] * 100, ".0f", "%")
+row("FCA breach target", BREACH_TARGETS["FCA"] * 100, BREACH_TARGETS["FCA"] * 100, ".0f", "%")
+row("PSD2 breach target", BREACH_TARGETS["PSD2"] * 100, BREACH_TARGETS["PSD2"] * 100, ".0f", "%")
 
 # ── Stability ──
 section("STABILITY CHECK")
 header()
-stable_u = pm.is_stable(result_under)
-stable_o = pm.is_stable(result_over)
+stable_u = is_stable(result_under)
+stable_o = is_stable(result_over)
 wip_delta_u = result_under[-1]["wip"] - result_under[-31]["wip"]
 wip_delta_o = result_over[-1]["wip"] - result_over[-31]["wip"]
 row("WIP change (last 30 days)", wip_delta_u, wip_delta_o, ".0f", warn_if="higher")

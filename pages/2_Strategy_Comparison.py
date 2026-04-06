@@ -5,18 +5,12 @@ allocation × work strategy combinations. Displays heatmaps for screening and
 drill-down time-series for selected combos.
 """
 
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 import streamlit as st
 import plotly.graph_objects as go
 from collections import defaultdict
 from statistics import mean
 
-import prove_maths as pm
-import strategy_model as sm
+from complaints_model import SimConfig, simulate
 
 st.set_page_config(page_title="Strategy Comparison", layout="wide")
 st.title("Strategy Comparison")
@@ -105,40 +99,26 @@ st.divider()
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _set_model_params():
-    """Push current params into both prove_maths and strategy_model modules."""
-    for mod in (pm, sm):
-        mod.SHRINKAGE = shrinkage
-        mod.ABSENCE_SHRINKAGE = absence_shrinkage
-        mod.HOURS_PER_DAY = hours_per_day
-        mod.UTILISATION = utilisation
-        mod.PROFICIENCY = proficiency
-        mod.DAILY_INTAKE = daily_intake
-        mod.BASE_EFFORT = base_effort
-        mod.DIARY_LIMIT = diary_limit
-        mod.MIN_DIARY_DAYS = min_diary_days
-        mod.HANDOFF_OVERHEAD = handoff_overhead
-        mod.HANDOFF_EFFORT_HOURS = handoff_effort_hours
-        mod.LATE_DEMAND_RATE = late_demand_rate
-        mod.PARKINSON_FLOOR = parkinson_floor
-        mod.PARKINSON_FULL_PACE_QUEUE = parkinson_fpq
-        mod.UNALLOCATED_BUFFER = unallocated_buffer
-        mod.SRC_WINDOW = src_window
-        mod.SRC_EFFORT_RATIO = src_effort_ratio
-        mod.SRC_BOOST_MAX = src_boost_max
-        mod.SRC_BOOST_DECAY_DAYS = src_boost_decay
-        mod.PSD2_EXTENSION_RATE = psd2_extension_rate
-        mod.SLICES_PER_DAY = slices_per_day
-        mod.DAYS = 365
-
-
 @st.cache_data(show_spinner=False)
 def _run_single_combo(alloc_strategy, work_strategy, params_tuple):
     """Run one strategy combo. Cached by (strategies + all params)."""
-    _set_model_params()
-    sm.ALLOCATION_STRATEGY = alloc_strategy
-    sm.WORK_STRATEGY = work_strategy
-    return sm.simulate(params_tuple[0])  # params_tuple[0] == fte
+    cfg = SimConfig(
+        fte=params_tuple[0], shrinkage=params_tuple[1],
+        absence_shrinkage=params_tuple[2], hours_per_day=params_tuple[3],
+        utilisation=params_tuple[4], proficiency=params_tuple[5],
+        daily_intake=params_tuple[6], base_effort=params_tuple[7],
+        diary_limit=params_tuple[8], min_diary_days=params_tuple[9],
+        handoff_overhead=params_tuple[10], handoff_effort_hours=params_tuple[11],
+        late_demand_rate=params_tuple[12], parkinson_floor=params_tuple[13],
+        parkinson_full_pace_queue=params_tuple[14], unallocated_buffer=params_tuple[15],
+        src_window=params_tuple[16], src_effort_ratio=params_tuple[17],
+        src_boost_max=params_tuple[18], src_boost_decay_days=params_tuple[19],
+        psd2_extension_rate=params_tuple[20], slices_per_day=params_tuple[21],
+        days=365,
+        allocation_strategy=alloc_strategy,
+        work_strategy=work_strategy,
+    )
+    return simulate(cfg)
 
 
 def _extract_kpis(results):
