@@ -9,6 +9,7 @@ from complaints_model import SimConfig, simulate
 
 st.set_page_config(page_title="Complaints Demand Model", layout="wide")
 st.title("Complaints Workforce Demand Simulation")
+st.caption("v2.0 — modular engine")
 
 # ── Sidebar: all config sliders ──────────────────────────────────────────────
 
