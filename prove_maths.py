@@ -112,8 +112,8 @@ from dataclasses import dataclass
 from statistics import mean
 
 
-DEFAULT_FTE = 120
-FTE_SWEEP = range(119, 130)
+DEFAULT_FTE = 148
+FTE_SWEEP = range(135, 155)
 
 SHRINKAGE = 0.42          # total shrinkage: drives productive hours
 ABSENCE_SHRINKAGE = 0.15  # absence component (within 42%): drives diary slots
@@ -123,7 +123,8 @@ PROFICIENCY = 1.0
 DIARY_LIMIT = 7
 DAILY_INTAKE = 300
 BASE_EFFORT = 1.5         # productive hours of work per case (band 1, no burden scaling)
-MIN_DIARY_DAYS = 0        # 0 = same-day close allowed (SRCs); avg days to close driven by effort + Parkinson's Law
+MIN_DIARY_DAYS = 0        # SRC cases: same-day close allowed
+MIN_DIARY_DAYS_NON_SRC = 3  # non-SRC needs ≥3 business days in diary (if it's not SRC, it needs investigation)
 HANDOFF_OVERHEAD = 0.15   # fraction of cases requiring handoff; each handoff adds HANDOFF_EFFORT_HOURS extra
 HANDOFF_EFFORT_HOURS = 0.5 # additional hours of effort added per handoff (setup/re-familiarisation)
 LATE_DEMAND_RATE = 0.08   # fraction of productive hours consumed by late demand / rework outside the queue
@@ -653,12 +654,10 @@ def process_work_slice(
         due_by_type[case_type] += SRC_DIST[0] * count
 
     def closeable(cohort: Cohort) -> bool:
-        """Case can only close after MIN_DIARY_DAYS business days in diary.
+        """Case can only close after minimum business days in diary.
 
-        NOTE: at MIN_DIARY_DAYS > 0, this counts the allocation day itself
-        as a business day, so the effective guard is off-by-one (e.g.,
-        MIN_DIARY_DAYS=1 would allow closure on the same day if allocated
-        on a workday). Masked at current default of 0.
+        SRC cases use MIN_DIARY_DAYS (0 = same-day close).
+        Non-SRC cases use MIN_DIARY_DAYS_NON_SRC (3 = need investigation time).
         """
         if cohort.allocation_day is None:
             return False
@@ -671,7 +670,8 @@ def process_work_slice(
         for i in range(remainder):
             if is_workday(cohort.allocation_day + full_weeks * 7 + i):
                 biz_days += 1
-        return biz_days >= MIN_DIARY_DAYS
+        min_days = MIN_DIARY_DAYS if cohort.is_src else MIN_DIARY_DAYS_NON_SRC
+        return biz_days >= min_days
 
     src_candidates = [
         cohort for cohort in allocated if cohort.is_src and cohort.count > 0.01 and closeable(cohort)

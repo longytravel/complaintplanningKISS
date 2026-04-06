@@ -49,6 +49,26 @@ st.sidebar.header("Regulatory")
 psd2_extension_rate = st.sidebar.slider("PSD2 Extension Rate", 0.00, 0.50, 0.05, 0.01)
 slices_per_day = st.sidebar.slider("Slices / Day", 1, 8, 4, 1)
 
+# ── Share params with Strategy Comparison page via session_state ────────────
+st.session_state.update({
+    "param_fte": fte, "param_shrinkage": shrinkage,
+    "param_absence_shrinkage": absence_shrinkage,
+    "param_hours_per_day": hours_per_day, "param_utilisation": utilisation,
+    "param_proficiency": proficiency, "param_daily_intake": daily_intake,
+    "param_base_effort": base_effort, "param_diary_limit": diary_limit,
+    "param_min_diary_days": min_diary_days,
+    "param_handoff_overhead": handoff_overhead,
+    "param_handoff_effort_hours": handoff_effort_hours,
+    "param_late_demand_rate": late_demand_rate,
+    "param_parkinson_floor": parkinson_floor,
+    "param_parkinson_fpq": parkinson_fpq,
+    "param_unallocated_buffer": unallocated_buffer,
+    "param_src_window": src_window, "param_src_effort_ratio": src_effort_ratio,
+    "param_src_boost_max": src_boost_max, "param_src_boost_decay": src_boost_decay,
+    "param_psd2_extension_rate": psd2_extension_rate,
+    "param_slices_per_day": slices_per_day,
+})
+
 
 # ── Run simulation with caching ─────────────────────────────────────────────
 
