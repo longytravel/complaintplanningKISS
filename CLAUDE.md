@@ -26,9 +26,17 @@ Simulates 730 days of complaint flow through a two-pool system (unallocated queu
 | `pages/2_Strategy_Comparison.py` | Strategy comparison dashboard page — heatmaps + drill-down |
 | `run_scenarios.py` | CLI runner: all 36 strategy combos with ranked output. `--fte`, `--sort-by` args. |
 | `compare_staffing.py` | Side-by-side comparison of two FTE levels (understaffed vs overstaffed) |
-| `tests/` | Regression and unit tests |
-| `requirements.txt` | Dashboard deps: `streamlit`, `plotly` |
+| `complaints_model/bands.py` | Band definitions (FCA/PSD2/Combined/Hybrid), case-to-band assignment |
+| `complaints_model/pool_config.py` | `OptimConfig` dataclass — per-band FTE splits, strategies, harm weights |
+| `complaints_model/harm.py` | Per-case-per-day harm scoring (breach overshoot + neglect + WIP) |
+| `complaints_model/pool_simulation.py` | `simulate_pooled()` — multi-pool simulation with per-band strategies |
+| `optimise.py` | CLI: Optuna study runner. `--objective`, `--fte`, `--trials`, weight flags |
+| `pages/3_Optimisation.py` | Optimisation dashboard — run Optuna, view best config, replay results |
+| `tests/` | Regression and unit tests (63 total) |
+| `requirements.txt` | Deps: `streamlit`, `plotly`, `optuna` |
 | `docs/STRATEGY_DASHBOARD_HANDOVER.md` | Handover doc for integrating strategies into dashboard |
+| `docs/superpowers/specs/2026-04-06-optimisation-design.md` | Optimisation design spec |
+| `docs/superpowers/plans/2026-04-06-optimisation.md` | Implementation plan |
 
 ## Running
 
@@ -36,7 +44,7 @@ Simulates 730 days of complaint flow through a two-pool system (unallocated queu
 # Run the simulation (console output)
 python -m complaints_model.reporting
 
-# Run the interactive dashboard
+# Run the interactive dashboard (3 pages: main, strategy comparison, optimisation)
 pip install -r requirements.txt
 streamlit run dashboard.py
 
@@ -48,6 +56,9 @@ python compare_staffing.py
 
 # Run strategy scenarios
 python run_scenarios.py
+
+# Run FTE pool optimisation (Optuna)
+python optimise.py --objective composite_harm --fte 148 --trials 200
 ```
 
 ## Architecture
@@ -59,6 +70,7 @@ python run_scenarios.py
 - Strategy support is built-in: `cfg.allocation_strategy` and `cfg.work_strategy`
 - Key mechanisms: Parkinson's Law pressure, SRC (Summary Resolution Communication) window, PSD2 extensions, burden scaling by case age, non-SRC minimum diary days (3 biz days)
 - Dependency flow is one-directional: config → cohort → regulatory → effort → strategies → intake → allocation/work → simulation → metrics → reporting
+- **Pool optimisation** extends this with: bands → pool_config → harm → pool_simulation → optimise
 
 ### Dashboard (`dashboard.py`)
 - Single-file Streamlit app
@@ -87,6 +99,15 @@ Under stress (~135 FTE), allocation strategy is the critical lever:
 - `lowest_effort` work produces deceptive metrics — great closures but hides breach backlog
 
 See `docs/STRATEGY_DASHBOARD_HANDOVER.md` for full results and dashboard integration guide.
+
+### Pool Optimisation (`optimise.py` / `pool_simulation.py`)
+- Splits FTE across case-age bands (5 FCA + 5 PSD2 bands, or 5 combined urgency tiers, or hybrid)
+- Each band has its own allocation strategy, work strategy, and FTE count
+- Optuna TPE sampler explores the decision space; median pruner kills bad configs early
+- 5 objectives: composite harm, lowest WIP, lowest PSD2/FCA/total breaches
+- Composite harm = `Σ(breach_weight × days_past_deadline + neglect_weight × days_untouched + wip_weight)` per case per day, days 366–730
+- SQLite storage enables study resume across sessions
+- Dashboard page 3 provides interactive Optuna controls and replay of best configs
 
 ## Validated
 - Manual mathematical verification of all core functions
