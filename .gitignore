@@ -5,3 +5,4 @@ __pycache__/
 .claude/
 .playwright-mcp/
 *.png
+optimisation_results.db
