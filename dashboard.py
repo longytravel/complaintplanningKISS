@@ -188,6 +188,21 @@ psd2_open = final["open_by_type"].get("PSD2_15", 0) + final["open_by_type"].get(
 psd2_breach = final["breaches_by_type"].get("PSD2_15", 0) + final["breaches_by_type"].get("PSD2_35", 0)
 psd2_breach_pct = (psd2_breach / psd2_open * 100) if psd2_open > 0 else 0
 
+# Flow breach: % of cases closed in last 30 workdays that were breached when closed
+fca_closed_30 = sum(r["closures_by_type"].get("FCA", 0) for r in last30_wd)
+fca_breached_closed_30 = sum(r["breached_closures_by_type"].get("FCA", 0) for r in last30_wd)
+fca_flow_pct = (fca_breached_closed_30 / fca_closed_30 * 100) if fca_closed_30 > 0 else 0
+
+psd2_closed_30 = sum(
+    r["closures_by_type"].get("PSD2_15", 0) + r["closures_by_type"].get("PSD2_35", 0)
+    for r in last30_wd
+)
+psd2_breached_closed_30 = sum(
+    r["breached_closures_by_type"].get("PSD2_15", 0) + r["breached_closures_by_type"].get("PSD2_35", 0)
+    for r in last30_wd
+)
+psd2_flow_pct = (psd2_breached_closed_30 / psd2_closed_30 * 100) if psd2_closed_30 > 0 else 0
+
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("WIP (Day 365)", f"{final['wip']:,.0f}")
 c2.metric("Unallocated", f"{final['unalloc']:,.0f}")
@@ -197,8 +212,14 @@ c4.metric("Effective Util", f"{avg_util:.1%}")
 c5, c6, c7, c8 = st.columns(4)
 c5.metric("Allocated", f"{final['alloc']:,.0f}")
 c6.metric("Avg Alloc Delay", f"{avg_delay:.1f} days")
-c7.metric("FCA Breach %", f"{fca_breach_pct:.1f}%")
-c8.metric("PSD2 Breach %", f"{psd2_breach_pct:.1f}%")
+c7.metric("FCA Stock Breach %", f"{fca_breach_pct:.1f}%")
+c8.metric("PSD2 Stock Breach %", f"{psd2_breach_pct:.1f}%")
+
+c9, c10, c11, c12 = st.columns(4)
+c9.metric("FCA Flow Breach %", f"{fca_flow_pct:.1f}%", help="% of FCA cases closed breached (last 30 workdays)")
+c10.metric("PSD2 Flow Breach %", f"{psd2_flow_pct:.1f}%", help="% of PSD2 cases closed breached (last 30 workdays)")
+c11.metric("FTE", f"{fte}")
+c12.metric("Daily Intake", f"{daily_intake}")
 
 
 # ── Section 1: Work In Progress ──────────────────────────────────────────────
