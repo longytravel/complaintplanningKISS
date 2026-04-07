@@ -182,13 +182,42 @@ def _run_trial_subprocess(
         return None
 
 
-def objective(
+_USE_SUBPROCESS = sys.platform == "win32"
+
+
+def _objective_inprocess(
     trial: optuna.Trial,
     total_fte: int,
     obj_name: str,
     harm_kwargs: dict,
 ) -> float:
-    """Optuna objective function -- one trial (subprocess-isolated)."""
+    """Direct in-process objective (fast, used on Linux/macOS)."""
+    params = suggest_params(trial, total_fte)
+    optim_cfg = build_optim_config(params, total_fte, **harm_kwargs)
+
+    results = simulate_pooled(optim_cfg, max_wip=50_000)
+
+    # Pruning: report at checkpoints after steady-state start
+    for checkpoint in range(400, 730, 50):
+        if checkpoint < len(results):
+            r = results[checkpoint]
+            if obj_name == "composite_harm":
+                trial.report(r["cumulative_harm"], checkpoint)
+            else:
+                trial.report(r["wip"], checkpoint)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+
+    return compute_objective(results, obj_name)
+
+
+def _objective_subprocess(
+    trial: optuna.Trial,
+    total_fte: int,
+    obj_name: str,
+    harm_kwargs: dict,
+) -> float:
+    """Subprocess-isolated objective (avoids CPython crash on Windows)."""
     params = suggest_params(trial, total_fte)
 
     result = _run_trial_subprocess(params, total_fte, harm_kwargs)
@@ -204,7 +233,6 @@ def objective(
             if trial.should_prune():
                 raise optuna.TrialPruned()
 
-    # Compute objective from subprocess results
     if obj_name == "composite_harm":
         return result["final"]["harm"]
     if obj_name == "lowest_wip":
@@ -216,6 +244,18 @@ def objective(
     if obj_name == "lowest_total_breaches":
         return result["steady_total_pct"]
     raise ValueError(f"Unknown objective: {obj_name}")
+
+
+def objective(
+    trial: optuna.Trial,
+    total_fte: int,
+    obj_name: str,
+    harm_kwargs: dict,
+) -> float:
+    """Optuna objective — subprocess on Windows, direct on Linux/macOS."""
+    if _USE_SUBPROCESS:
+        return _objective_subprocess(trial, total_fte, obj_name, harm_kwargs)
+    return _objective_inprocess(trial, total_fte, obj_name, harm_kwargs)
 
 
 def run_study(
