@@ -66,14 +66,13 @@ if run_btn:
         pruner=optuna.pruners.MedianPruner(n_startup_trials=min(20, n_trials // 5)),
     )
 
-    best_val = float("inf")
+    best_val = [float("inf")]
 
     def trial_callback(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
-        nonlocal best_val
         pct = min(1.0, (trial.number + 1) / n_trials)
-        if trial.value is not None and trial.value < best_val:
-            best_val = trial.value
-        progress.progress(pct, text=f"Trial {trial.number+1}/{n_trials} — best: {best_val:,.1f}")
+        if trial.value is not None and trial.value < best_val[0]:
+            best_val[0] = trial.value
+        progress.progress(pct, text=f"Trial {trial.number+1}/{n_trials} — best: {best_val[0]:,.1f}")
 
     def make_objective(pm: str | None):
         def obj(trial: optuna.Trial) -> float:

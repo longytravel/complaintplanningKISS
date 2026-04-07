@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
+import sys
 import time
 from statistics import mean
 
@@ -114,30 +117,105 @@ def compute_objective(results: list[dict], objective: str) -> float:
     raise ValueError(f"Unknown objective: {objective}")
 
 
+_SUBPROCESS_SCRIPT = r'''
+import json, sys
+from complaints_model.pool_config import OptimConfig, BandAllocation
+from complaints_model.bands import get_bands_for_model
+from complaints_model.pool_simulation import simulate_pooled
+
+params = json.loads(sys.argv[1])
+total_fte = int(sys.argv[2])
+harm_kw = json.loads(sys.argv[3])
+pm = params["pooling_model"]
+bands = get_bands_for_model(pm)
+band_names = [b.name for b in bands]
+allocs = []
+fte_used = 0
+for i, bn in enumerate(band_names):
+    if i < len(band_names) - 1:
+        fte = params.get(f"{bn}_fte", 0)
+        fte_used += fte
+    else:
+        fte = max(0, total_fte - fte_used)
+    allocs.append(BandAllocation(bn, fte, params[f"{bn}_alloc"], params[f"{bn}_work"]))
+oc = OptimConfig(total_fte=total_fte, pooling_model=pm, band_allocations=allocs, **harm_kw)
+results = simulate_pooled(oc, max_wip=50_000)
+out = {"days": len(results)}
+for day_idx in range(400, 730, 50):
+    if day_idx < len(results):
+        r = results[day_idx]
+        out[f"cp_{day_idx}"] = {"harm": r["cumulative_harm"], "wip": r["wip"]}
+if len(results) >= 730:
+    out["final"] = {"harm": results[-1]["cumulative_harm"],
+                    "wip": results[-1]["wip"],
+                    "open_by_type": results[-1]["open_by_type"],
+                    "breaches_by_type": results[-1]["breaches_by_type"]}
+    from statistics import mean
+    steady = results[366:]
+    out["steady_avg_wip"] = mean(r["wip"] for r in steady)
+    def breach_pct(r, types):
+        total = sum(r["open_by_type"].get(t, 0) for t in types)
+        breached = sum(r["breaches_by_type"].get(t, 0) for t in types)
+        return (breached / total * 100) if total > 0 else 0.0
+    out["steady_psd2_pct"] = mean(breach_pct(r, ["PSD2_15", "PSD2_35"]) for r in steady)
+    out["steady_fca_pct"] = mean(breach_pct(r, ["FCA"]) for r in steady)
+    out["steady_total_pct"] = mean(
+        breach_pct(r, list(r["open_by_type"].keys())) for r in steady)
+print(json.dumps(out))
+'''
+
+
+def _run_trial_subprocess(
+    params: dict, total_fte: int, harm_kwargs: dict,
+) -> dict | None:
+    """Run a single trial in a subprocess to avoid CPython cache corruption."""
+    try:
+        r = subprocess.run(
+            [sys.executable, "-c", _SUBPROCESS_SCRIPT,
+             json.dumps(params), str(total_fte), json.dumps(harm_kwargs)],
+            capture_output=True, text=True, timeout=180,
+        )
+        if r.returncode != 0:
+            return None
+        return json.loads(r.stdout.strip())
+    except (subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None
+
+
 def objective(
     trial: optuna.Trial,
     total_fte: int,
     obj_name: str,
     harm_kwargs: dict,
 ) -> float:
-    """Optuna objective function — one trial."""
+    """Optuna objective function -- one trial (subprocess-isolated)."""
     params = suggest_params(trial, total_fte)
-    optim_cfg = build_optim_config(params, total_fte, **harm_kwargs)
 
-    results = simulate_pooled(optim_cfg, max_wip=50_000)
+    result = _run_trial_subprocess(params, total_fte, harm_kwargs)
+    if result is None or result["days"] < 730:
+        return float("inf")
 
-    # Pruning: report at checkpoints after steady-state start
+    # Pruning via checkpoint data
     for checkpoint in range(400, 730, 50):
-        if checkpoint < len(results):
-            r = results[checkpoint]
-            if obj_name == "composite_harm":
-                trial.report(r["cumulative_harm"], checkpoint)
-            else:
-                trial.report(r["wip"], checkpoint)
+        key = f"cp_{checkpoint}"
+        if key in result:
+            val = result[key]["harm"] if obj_name == "composite_harm" else result[key]["wip"]
+            trial.report(val, checkpoint)
             if trial.should_prune():
                 raise optuna.TrialPruned()
 
-    return compute_objective(results, obj_name)
+    # Compute objective from subprocess results
+    if obj_name == "composite_harm":
+        return result["final"]["harm"]
+    if obj_name == "lowest_wip":
+        return result["steady_avg_wip"]
+    if obj_name == "lowest_psd2":
+        return result["steady_psd2_pct"]
+    if obj_name == "lowest_fca":
+        return result["steady_fca_pct"]
+    if obj_name == "lowest_total_breaches":
+        return result["steady_total_pct"]
+    raise ValueError(f"Unknown objective: {obj_name}")
 
 
 def run_study(
