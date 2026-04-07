@@ -122,6 +122,7 @@ import json, sys
 from complaints_model.pool_config import OptimConfig, BandAllocation
 from complaints_model.bands import get_bands_for_model
 from complaints_model.pool_simulation import simulate_pooled
+from statistics import mean
 
 params = json.loads(sys.argv[1])
 total_fte = int(sys.argv[2])
@@ -150,7 +151,6 @@ if len(results) >= 730:
                     "wip": results[-1]["wip"],
                     "open_by_type": results[-1]["open_by_type"],
                     "breaches_by_type": results[-1]["breaches_by_type"]}
-    from statistics import mean
     steady = results[366:]
     out["steady_avg_wip"] = mean(r["wip"] for r in steady)
     def breach_pct(r, types):

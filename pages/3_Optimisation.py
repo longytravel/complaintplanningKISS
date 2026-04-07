@@ -7,14 +7,12 @@ import optuna
 import plotly.graph_objects as go
 
 from complaints_model.config import SimConfig
-from complaints_model.pool_config import (
-    OptimConfig, BandAllocation, ALLOC_STRATEGIES, WORK_STRATEGIES,
-)
+from complaints_model.pool_config import OptimConfig
 from complaints_model.bands import get_bands_for_model
 from complaints_model.pool_simulation import simulate_pooled
 from optimise import (
     suggest_params, build_optim_config, compute_objective,
-    OBJECTIVES, POOLING_MODELS,
+    OBJECTIVES, POOLING_MODELS, objective,
 )
 
 st.set_page_config(page_title="FTE Optimisation", layout="wide")
@@ -74,42 +72,11 @@ if run_btn:
             best_val[0] = trial.value
         progress.progress(pct, text=f"Trial {trial.number+1}/{n_trials} — best: {best_val[0]:,.1f}")
 
-    def make_objective(pm: str | None):
-        def obj(trial: optuna.Trial) -> float:
-            if pm is not None:
-                params = {"pooling_model": pm}
-                bands = get_bands_for_model(pm)
-            else:
-                pm_chosen = trial.suggest_categorical("pooling_model", POOLING_MODELS)
-                params = {"pooling_model": pm_chosen}
-                bands = get_bands_for_model(pm_chosen)
-
-            band_names = [b.name for b in bands]
-            fte_remaining = total_fte
-            for i, bname in enumerate(band_names):
-                if i < len(band_names) - 1:
-                    fte = trial.suggest_int(f"{bname}_fte", 0, min(fte_remaining, total_fte))
-                    fte_remaining = max(0, fte_remaining - fte)
-                    params[f"{bname}_fte"] = fte
-                params[f"{bname}_alloc"] = trial.suggest_categorical(f"{bname}_alloc", ALLOC_STRATEGIES)
-                params[f"{bname}_work"] = trial.suggest_categorical(f"{bname}_work", WORK_STRATEGIES)
-
-            oc = build_optim_config(params, total_fte, **harm_kwargs)
-            results = simulate_pooled(oc, max_wip=50_000)
-
-            # Pruning
-            for cp in range(400, 730, 50):
-                if cp < len(results):
-                    val = results[cp]["cumulative_harm"] if obj_name == "composite_harm" else results[cp]["wip"]
-                    trial.report(val, cp)
-                    if trial.should_prune():
-                        raise optuna.TrialPruned()
-
-            return compute_objective(results, obj_name)
-        return obj
-
-    pm_arg = None if pooling_model == "all" else pooling_model
-    study.optimize(make_objective(pm_arg), n_trials=n_trials, callbacks=[trial_callback])
+    study.optimize(
+        lambda trial: objective(trial, total_fte, obj_name, harm_kwargs),
+        n_trials=n_trials,
+        callbacks=[trial_callback],
+    )
 
     progress.progress(1.0, text="Optimisation complete!")
     st.session_state.optim_study = study
@@ -147,7 +114,9 @@ for i, bname in enumerate(band_names):
     work = best.params.get(f"{bname}_work", "—")
     rows.append({"Band": bname, "FTE": fte, "Allocation Strategy": alloc, "Work Strategy": work})
 
-st.table(rows)
+header = "| Band | FTE | Allocation Strategy | Work Strategy |\n|------|-----|-------------------|---------------|\n"
+body = "\n".join(f"| {r['Band']} | {r['FTE']} | {r['Allocation Strategy']} | {r['Work Strategy']} |" for r in rows)
+st.markdown(header + body)
 
 # Optuna visualisation charts
 st.subheader("Optimisation Charts")
